@@ -1,101 +1,400 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useState, useEffect } from "react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+// Removed unused import: import { format } from "date-fns";
+import { Clock, Trash, Plus, Minus } from "lucide-react";
+import { v4 as uuidv4 } from "uuid";
+
+// Define the Project interface with id as a string
+interface Project {
+  id: string;
+  name: string;
+  time: number;
+}
+
+export default function TimeTracker() {
+  const [generalTimer, setGeneralTimer] = useState(0);
+  const [generalTimerRunning, setGeneralTimerRunning] = useState(false);
+
+  const [dayTimer, setDayTimer] = useState(0);
+  const [dayTimerRunning, setDayTimerRunning] = useState(false);
+
+  // Update the projects state to use the Project interface
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectTimers, setProjectTimers] = useState<{ [key: string]: number }>({});
+  const [projectRunning, setProjectRunning] = useState<string | null>(null);
+
+  // Time adjustment increment in seconds (5 minutes)
+  const TIME_INCREMENT = 300;
+
+  // Timer Effects
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+
+    if (generalTimerRunning) {
+      interval = setInterval(() => {
+        setGeneralTimer((prevTime) => prevTime + 1);
+      }, 1000);
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [generalTimerRunning]);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+
+    if (dayTimerRunning) {
+      interval = setInterval(() => {
+        setDayTimer((prevTime) => prevTime + 1);
+      }, 1000);
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [dayTimerRunning]);
+
+  useEffect(() => {
+    const projectIntervals: { [key: string]: NodeJS.Timeout } = {};
+
+    if (projectRunning !== null) {
+      projectIntervals[projectRunning] = setInterval(() => {
+        setProjectTimers((prevTimers) => ({
+          ...prevTimers,
+          [projectRunning]: (prevTimers[projectRunning] || 0) + 1,
+        }));
+      }, 1000);
+    }
+
+    return () => {
+      Object.values(projectIntervals).forEach((interval) => clearInterval(interval));
+    };
+  }, [projectRunning]);
+
+  // Time Transfer Functions
+  const transferTimeGeneralDay = (adding: boolean) => {
+    if (adding) {
+      // Adding 5 minutes to both General Timer and Day Timer
+      setGeneralTimer((prev) => prev + TIME_INCREMENT);
+      setDayTimer((prev) => prev + TIME_INCREMENT);
+    } else {
+      // Subtracting 5 minutes from both General Timer and Day Timer
+      if (generalTimer >= TIME_INCREMENT && dayTimer >= TIME_INCREMENT) {
+        setGeneralTimer((prev) => prev - TIME_INCREMENT);
+        setDayTimer((prev) => prev - TIME_INCREMENT);
+      }
+    }
+  };
+
+  const transferTimeProjectGeneral = (projectId: string, adding: boolean) => {
+    if (adding) {
+      // Adding to Project Timer, subtracting from General Timer
+      if (generalTimer >= TIME_INCREMENT) {
+        setProjectTimers((prev) => ({
+          ...prev,
+          [projectId]: (prev[projectId] || 0) + TIME_INCREMENT,
+        }));
+        setGeneralTimer((prev) => prev - TIME_INCREMENT);
+      }
+    } else {
+      // Subtracting from Project Timer, adding to General Timer
+      if (projectTimers[projectId] >= TIME_INCREMENT) {
+        setProjectTimers((prev) => ({
+          ...prev,
+          [projectId]: prev[projectId] - TIME_INCREMENT,
+        }));
+        setGeneralTimer((prev) => prev + TIME_INCREMENT);
+      }
+    }
+  };
+
+  // Helper Functions
+  const startDayTimer = () => {
+    setDayTimerRunning(true);
+    if (!projectRunning) {
+      setGeneralTimerRunning(true);
+    }
+  };
+
+  const stopDayTimer = () => {
+    setDayTimerRunning(false);
+    setGeneralTimerRunning(false);
+    setProjectRunning(null);
+  };
+
+  const startGeneralTimer = () => {
+    setGeneralTimerRunning(true);
+    setProjectRunning(null);
+    setDayTimerRunning(true);
+  };
+
+  const stopGeneralTimer = () => {
+    setGeneralTimerRunning(false);
+    setDayTimerRunning(false);
+  };
+
+  const startProjectTimer = (projectId: string) => {
+    setProjectRunning(projectId);
+    setGeneralTimerRunning(false);
+    setDayTimerRunning(true);
+  };
+
+  const stopProjectTimer = () => {
+    setProjectRunning(null);
+    setGeneralTimerRunning(true);
+  };
+
+  const formatTime = (seconds: number) => {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  };
+
+  const addProject = (name: string) => {
+    if (name.trim()) {
+      const newProject: Project = { id: uuidv4(), name, time: 0 };
+      setProjects((prevProjects) => [...prevProjects, newProject]);
+      setProjectTimers((prevTimers) => ({ ...prevTimers, [newProject.id]: 0 }));
+    }
+  };
+
+  const deleteProject = (projectId: string) => {
+    setProjects((prevProjects) => prevProjects.filter((project) => project.id !== projectId));
+    setProjectTimers((prevTimers) => {
+      const updatedTimers = { ...prevTimers };
+      delete updatedTimers[projectId];
+      return updatedTimers;
+    });
+
+    if (projectRunning === projectId) {
+      stopProjectTimer();
+    }
+  };
+
+  const exportToCSV = () => {
+    const headers = ["Timer", "Time (HH:mm:ss)"];
+    const data = [
+      ["Day Timer", formatTime(dayTimer)],
+      ["General Timer", formatTime(generalTimer)],
+      ...projects.map((project) => [
+        `Project: ${project.name}`,
+        formatTime(projectTimers[project.id] || 0),
+      ]),
+    ];
+
+    const csvContent = [headers, ...data]
+      .map((row) => row.join(","))
+      .join("\n");
+
+    const currentDate = new Date();
+    const formattedDate = currentDate
+      .toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+      .replace(/ /g, "_");
+
+    const filename = `Wills_Time_For_${formattedDate}.csv`;
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
+      <Card className="w-full max-w-3xl">
+        <CardHeader className="">
+          <CardTitle className="text-2xl font-bold text-gray-900">
+            WillBilly5000 Daily Time Tracker
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="">
+          {/* Day Timer */}
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold mb-2 text-gray-900">Day Timer</h3>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-2xl font-bold text-gray-900">
+                <Clock className="inline-block mr-2 h-6 w-6" />
+                {formatTime(dayTimer)}
+              </div>
+              <div>
+                <Button
+                  onClick={startDayTimer}
+                  disabled={dayTimerRunning}
+                  className={`mr-2 ${dayTimerRunning ? "bg-green-500 text-white" : ""}`}
+                >
+                  Start
+                </Button>
+                <Button onClick={stopDayTimer} disabled={!dayTimerRunning} className="mr-2">
+                  Stop
+                </Button>
+                <Button onClick={() => setDayTimer(0)} variant="outline" disabled={false}>
+                  Reset
+                </Button>
+              </div>
+            </div>
+          </div>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+          {/* General Timer */}
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold mb-2 text-gray-900">General Timer</h3>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-2xl font-bold text-gray-900">
+                <Clock className="inline-block mr-2 h-6 w-6" />
+                {formatTime(generalTimer)}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  onClick={() => transferTimeGeneralDay(true)}
+                  variant="outline"
+                  className="px-2"
+                  title="Add 5 minutes to both timers"
+                  disabled={false}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+                <Button
+                  onClick={() => transferTimeGeneralDay(false)}
+                  variant="outline"
+                  className="px-2"
+                  title="Remove 5 minutes from both timers"
+                  disabled={generalTimer < TIME_INCREMENT || dayTimer < TIME_INCREMENT}
+                >
+                  <Minus className="h-4 w-4" />
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (projectRunning !== null) {
+                      stopProjectTimer();
+                    }
+                    startGeneralTimer();
+                  }}
+                  disabled={generalTimerRunning}
+                  className={`mr-2 ${generalTimerRunning ? "bg-green-500 text-white" : ""}`}
+                >
+                  Start
+                </Button>
+                <Button onClick={stopGeneralTimer} disabled={!generalTimerRunning} className="mr-2">
+                  Stop
+                </Button>
+                <Button
+                  onClick={() => setGeneralTimer(0)}
+                  variant="outline"
+                  disabled={projectRunning !== null}
+                >
+                  Reset
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* Project Management */}
+          <div className="mb-4">
+            <h3 className="text-lg font-semibold mb-2 text-gray-900">Project Management</h3>
+            <Label htmlFor="project-name" className="text-gray-800">
+              Add New Project
+            </Label>
+            <div className="flex items-center mt-2">
+              <Input
+                id="project-name"
+                className="mr-2"
+                placeholder="Project Name"
+                onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                  if (e.key === "Enter") {
+                    const inputElement = e.target as HTMLInputElement;
+                    addProject(inputElement.value);
+                    inputElement.value = "";
+                  }
+                }}
+              />
+              <Button
+                onClick={() => {
+                  const inputElement = document.getElementById("project-name") as HTMLInputElement;
+                  addProject(inputElement.value);
+                  inputElement.value = "";
+                }}
+                disabled={false}
+              >
+                Add
+              </Button>
+            </div>
+            <div className="mt-4">
+              {projects.map((project) => (
+                <div key={project.id} className="flex items-center justify-between mb-4 border-b pb-2">
+                  <span className="text-gray-900 font-semibold flex-1">{project.name}</span>
+                  <span className="text-gray-700">{formatTime(projectTimers[project.id] || 0)}</span>
+                  <div className="flex items-center gap-2 ml-4">
+                    <Button
+                      onClick={() => transferTimeProjectGeneral(project.id, true)}
+                      variant="outline"
+                      className="px-2"
+                      title="Add 5 minutes from General Timer"
+                      disabled={generalTimer < TIME_INCREMENT}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      onClick={() => transferTimeProjectGeneral(project.id, false)}
+                      variant="outline"
+                      className="px-2"
+                      title="Remove 5 minutes to General Timer"
+                      disabled={(projectTimers[project.id] || 0) < TIME_INCREMENT}
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      onClick={() => startProjectTimer(project.id)}
+                      disabled={projectRunning === project.id}
+                      className={`mr-2 ${projectRunning === project.id ? "bg-green-500 text-white" : ""}`}
+                    >
+                      Start
+                    </Button>
+                    <Button onClick={stopProjectTimer} disabled={projectRunning !== project.id}>
+                      Stop
+                    </Button>
+                  </div>
+                  <div className="flex justify-end ml-4">
+                    <Button
+                      onClick={() => deleteProject(project.id)}
+                      variant="outline"
+                      className="text-red-500 hover:bg-red-100 p-1 flex-shrink-0"
+                      title="Delete Project"
+                      disabled={false}
+                    >
+                      <Trash className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      {/* Export Button */}
+      <Button
+        onClick={exportToCSV}
+        className="bg-blue-500 text-white hover:bg-blue-600 px-4 py-2 mt-4"
+        disabled={false}
+      >
+        Export to CSV
+      </Button>
     </div>
   );
 }
