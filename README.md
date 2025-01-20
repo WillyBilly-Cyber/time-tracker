@@ -48,56 +48,37 @@ The app uses React with Next.js, Tailwind CSS for styling, and TypeScript for ty
 3. **Time Adjustments**: Add or subtract time between timers in 5-minute increments.
 4. **CSV Export**: Download time logs for analysis.
 
-Detailed Description of How the Program Works
+## Detailed Description of How the Program Works
 
-Application Structure
+# Application Structure
 
 The app is built with React and Next.js, utilizing TypeScript for type safety. It employs Tailwind CSS for styling and uses state management via React hooks.
 
-Main Components:
+# Main Components:
 
-Day Timer: Tracks the total time spent during the day. It can be started, stopped, reset, and adjusted in increments of 5 minutes.
-
-General Timer: Tracks time spent on general tasks. Time can be transferred to/from the Day Timer.
-
-Project Management:
-
+1. **Day Timer**: Tracks the total time spent during the day. It can be started, stopped, reset, and adjusted in increments of 5 minutes.
+2. **General Timer**: Tracks time spent on general tasks. Time can be transferred to/from the Day Timer.
+3. **Project Management**:
 Add projects with a unique name.
-
 Start/stop individual project timers.
-
 Transfer time between the General Timer and specific project timers.
+4. **Export to CSV**: Allows users to export all timer data in CSV format, including timestamps.
 
-Export to CSV: Allows users to export all timer data in CSV format, including timestamps.
+# Core Functionalities:
 
-Core Functionalities:
-
-State Management:
-
+1. **State Management**:
 useState hooks manage the timer states for day, general, and project timers.
-
 Dynamic updates ensure real-time functionality.
-
-Timer Logic:
-
+2. **Timer Logic**:
 useEffect manages intervals for running timers.
-
 Timers increment every second while running.
-
-Dynamic Button States:
-
+3. **Dynamic Button States:**
 Buttons change colors based on state (e.g., green for active timers, red for stop buttons).
-
 Disabled states are dynamically applied to prevent invalid actions.
-
-Responsive UI:
-
+4. **Responsive UI**:
 Built using Tailwind CSS for consistent and responsive styling.
-
-Time Adjustment Logic:
-
+5. **Time Adjustment Logic**:
 Time is transferred between timers using transferTimeGeneralDay and transferTimeProjectGeneral functions.
-
 Add or subtract 5-minute intervals (300 seconds) as needed.
 ## License
 MIT License
