@@ -1,157 +1,222 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-// Removed unused import: import { format } from "date-fns";
 import { Clock, Trash, Plus, Minus } from "lucide-react";
 import { v4 as uuidv4 } from "uuid";
 
-// Define the Project interface with id as a string
 interface Project {
   id: string;
   name: string;
   time: number;
 }
 
+interface TimerState {
+  base: number; // accumulated seconds
+  running: boolean;
+  startedAt: number | null; // timestamp in ms, or null if not running
+}
+
+interface AppState {
+  day: TimerState;
+  general: TimerState;
+  projects: Project[];
+  projectTimers: Record<string, TimerState>;
+  projectRunning: string | null;
+}
+
+const LOCAL_STORAGE_KEY = "timeTrackerState";
+const TIME_INCREMENT = 300;
+
+function nowSec() {
+  return Math.floor(Date.now() / 1000);
+}
+
+function loadState(): AppState {
+  try {
+    const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored) as AppState;
+      // Ensure all timers have required fields
+      if (!parsed.day) parsed.day = { base: 0, running: false, startedAt: null };
+      if (!parsed.general) parsed.general = { base: 0, running: false, startedAt: null };
+      if (!parsed.projectTimers) parsed.projectTimers = {};
+      for (const id in parsed.projectTimers) {
+        if (!parsed.projectTimers[id]) parsed.projectTimers[id] = { base: 0, running: false, startedAt: null };
+      }
+      return parsed;
+    }
+  } catch {}
+  return {
+    day: { base: 0, running: false, startedAt: null },
+    general: { base: 0, running: false, startedAt: null },
+    projects: [],
+    projectTimers: {},
+    projectRunning: null,
+  };
+}
+
+function getTimerDisplay(timer: TimerState) {
+  if (!timer.running || !timer.startedAt) return timer.base;
+  return timer.base + (nowSec() - Math.floor(timer.startedAt / 1000));
+}
+
 export default function TimeTracker() {
-  const [generalTimer, setGeneralTimer] = useState(0);
-  const [generalTimerRunning, setGeneralTimerRunning] = useState(false);
+  const initial = loadState();
+  const [day, setDay] = useState<TimerState>(initial.day);
+  const [general, setGeneral] = useState<TimerState>(initial.general);
+  const [projects, setProjects] = useState<Project[]>(initial.projects);
+  const [projectTimers, setProjectTimers] = useState<Record<string, TimerState>>(initial.projectTimers);
+  const [projectRunning, setProjectRunning] = useState<string | null>(initial.projectRunning);
 
-  const [dayTimer, setDayTimer] = useState(0);
-  const [dayTimerRunning, setDayTimerRunning] = useState(false);
+  const [, setTick] = useState(0); // for forcing re-render
+  const saveTimeout = useRef<number>();
 
-  // Update the projects state to use the Project interface
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [projectTimers, setProjectTimers] = useState<{ [key: string]: number }>({});
-  const [projectRunning, setProjectRunning] = useState<string | null>(null);
-
-  // Time adjustment increment in seconds (5 minutes)
-  const TIME_INCREMENT = 300;
-
-  // Timer Effects
+  // Force re-render every second for display
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
+    const interval = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
 
-    if (generalTimerRunning) {
-      interval = setInterval(() => {
-        setGeneralTimer((prevTime) => prevTime + 1);
-      }, 1000);
-    }
-
-    return () => {
-      if (interval) {
-        clearInterval(interval);
-      }
-    };
-  }, [generalTimerRunning]);
-
+  // Debounced save to localStorage
   useEffect(() => {
-    let interval: NodeJS.Timeout | null = null;
-
-    if (dayTimerRunning) {
-      interval = setInterval(() => {
-        setDayTimer((prevTime) => prevTime + 1);
-      }, 1000);
-    }
-
-    return () => {
-      if (interval) {
-        clearInterval(interval);
-      }
-    };
-  }, [dayTimerRunning]);
-
-  useEffect(() => {
-    const projectIntervals: { [key: string]: NodeJS.Timeout } = {};
-
-    if (projectRunning !== null) {
-      projectIntervals[projectRunning] = setInterval(() => {
-        setProjectTimers((prevTimers) => ({
-          ...prevTimers,
-          [projectRunning]: (prevTimers[projectRunning] || 0) + 1,
-        }));
-      }, 1000);
-    }
-
-    return () => {
-      Object.values(projectIntervals).forEach((interval) => clearInterval(interval));
-    };
-  }, [projectRunning]);
+    clearTimeout(saveTimeout.current);
+    saveTimeout.current = window.setTimeout(() => {
+      const state: AppState = {
+        day,
+        general,
+        projects,
+        projectTimers,
+        projectRunning,
+      };
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(state));
+    }, 1000);
+    return () => clearTimeout(saveTimeout.current);
+  }, [day, general, projects, projectTimers, projectRunning]);
 
   // Time Transfer Functions
   const transferTimeGeneralDay = (adding: boolean) => {
     if (adding) {
-      // Adding 5 minutes to both General Timer and Day Timer
-      setGeneralTimer((prev) => prev + TIME_INCREMENT);
-      setDayTimer((prev) => prev + TIME_INCREMENT);
+      setGeneral(g => ({ ...g, base: g.base + TIME_INCREMENT }));
+      setDay(d => ({ ...d, base: d.base + TIME_INCREMENT }));
     } else {
-      // Subtracting 5 minutes from both General Timer and Day Timer
-      if (generalTimer >= TIME_INCREMENT && dayTimer >= TIME_INCREMENT) {
-        setGeneralTimer((prev) => prev - TIME_INCREMENT);
-        setDayTimer((prev) => prev - TIME_INCREMENT);
+      if (getTimerDisplay(general) >= TIME_INCREMENT && getTimerDisplay(day) >= TIME_INCREMENT) {
+        setGeneral(g => ({ ...g, base: g.base - TIME_INCREMENT }));
+        setDay(d => ({ ...d, base: d.base - TIME_INCREMENT }));
       }
     }
   };
 
   const transferTimeProjectGeneral = (projectId: string, adding: boolean) => {
     if (adding) {
-      // Adding to Project Timer, subtracting from General Timer
-      if (generalTimer >= TIME_INCREMENT) {
-        setProjectTimers((prev) => ({
+      if (getTimerDisplay(general) >= TIME_INCREMENT) {
+        setProjectTimers(prev => ({
           ...prev,
-          [projectId]: (prev[projectId] || 0) + TIME_INCREMENT,
+          [projectId]: {
+            ...prev[projectId],
+            base: (prev[projectId]?.base || 0) + TIME_INCREMENT,
+          },
         }));
-        setGeneralTimer((prev) => prev - TIME_INCREMENT);
+        setGeneral(g => ({ ...g, base: g.base - TIME_INCREMENT }));
       }
     } else {
-      // Subtracting from Project Timer, adding to General Timer
-      if (projectTimers[projectId] >= TIME_INCREMENT) {
-        setProjectTimers((prev) => ({
+      if ((projectTimers[projectId]?.base || 0) >= TIME_INCREMENT) {
+        setProjectTimers(prev => ({
           ...prev,
-          [projectId]: prev[projectId] - TIME_INCREMENT,
+          [projectId]: {
+            ...prev[projectId],
+            base: prev[projectId].base - TIME_INCREMENT,
+          },
         }));
-        setGeneralTimer((prev) => prev + TIME_INCREMENT);
+        setGeneral(g => ({ ...g, base: g.base + TIME_INCREMENT }));
       }
     }
   };
 
-  // Helper Functions
+  // TIMER STATE LOGIC ENFORCEMENT
   const startDayTimer = () => {
-    setDayTimerRunning(true);
-    if (!projectRunning) {
-      setGeneralTimerRunning(true);
-    }
+    if (!day.running) setDay({ ...day, running: true, startedAt: Date.now() });
+    if (!general.running) setGeneral({ ...general, running: true, startedAt: Date.now() });
+    setProjectRunning(null);
+    // Stop any running project
+    setProjectTimers(prev => {
+      const updated = { ...prev };
+      for (const id in updated) {
+        if (updated[id].running) {
+          updated[id] = { ...updated[id], base: getTimerDisplay(updated[id]), running: false, startedAt: null };
+        }
+      }
+      return updated;
+    });
   };
 
   const stopDayTimer = () => {
-    setDayTimerRunning(false);
-    setGeneralTimerRunning(false);
+    setDay({ ...day, base: getTimerDisplay(day), running: false, startedAt: null });
+    setGeneral({ ...general, base: getTimerDisplay(general), running: false, startedAt: null });
+    setProjectTimers(prev => {
+      const updated = { ...prev };
+      for (const id in updated) {
+        updated[id] = { ...updated[id], base: getTimerDisplay(updated[id]), running: false, startedAt: null };
+      }
+      return updated;
+    });
     setProjectRunning(null);
   };
 
   const startGeneralTimer = () => {
-    setGeneralTimerRunning(true);
+    setGeneral({ ...general, running: true, startedAt: Date.now() });
+    setDay({ ...day, running: true, startedAt: day.running ? day.startedAt : Date.now() });
+    setProjectTimers(prev => {
+      const updated = { ...prev };
+      for (const id in updated) {
+        if (updated[id].running) {
+          updated[id] = { ...updated[id], base: getTimerDisplay(updated[id]), running: false, startedAt: null };
+        }
+      }
+      return updated;
+    });
     setProjectRunning(null);
-    setDayTimerRunning(true);
   };
 
   const stopGeneralTimer = () => {
-    setGeneralTimerRunning(false);
-    setDayTimerRunning(false);
+    setGeneral({ ...general, base: getTimerDisplay(general), running: false, startedAt: null });
   };
 
   const startProjectTimer = (projectId: string) => {
+    setGeneral({ ...general, base: getTimerDisplay(general), running: false, startedAt: null });
+    setDay({ ...day, running: true, startedAt: day.running ? day.startedAt : Date.now() });
+    setProjectTimers(prev => {
+      const updated = { ...prev };
+      for (const id in updated) {
+        if (id === projectId) {
+          updated[id] = { ...updated[id], running: true, startedAt: Date.now() };
+        } else if (updated[id].running) {
+          updated[id] = { ...updated[id], base: getTimerDisplay(updated[id]), running: false, startedAt: null };
+        }
+      }
+      return updated;
+    });
     setProjectRunning(projectId);
-    setGeneralTimerRunning(false);
-    setDayTimerRunning(true);
   };
 
   const stopProjectTimer = () => {
+    if (projectRunning) {
+      setProjectTimers(prev => ({
+        ...prev,
+        [projectRunning]: {
+          ...prev[projectRunning],
+          base: getTimerDisplay(prev[projectRunning]),
+          running: false,
+          startedAt: null,
+        },
+      }));
+    }
+    setGeneral({ ...general, running: true, startedAt: Date.now() });
+    setDay({ ...day, running: true, startedAt: day.running ? day.startedAt : Date.now() });
     setProjectRunning(null);
-    setGeneralTimerRunning(true);
   };
 
   const formatTime = (seconds: number) => {
@@ -165,7 +230,10 @@ export default function TimeTracker() {
     if (name.trim()) {
       const newProject: Project = { id: uuidv4(), name, time: 0 };
       setProjects((prevProjects) => [...prevProjects, newProject]);
-      setProjectTimers((prevTimers) => ({ ...prevTimers, [newProject.id]: 0 }));
+      setProjectTimers((prevTimers) => ({
+        ...prevTimers,
+        [newProject.id]: { base: 0, running: false, startedAt: null },
+      }));
     }
   };
 
@@ -185,11 +253,11 @@ export default function TimeTracker() {
   const exportToCSV = () => {
     const headers = ["Timer", "Time (HH:mm:ss)"];
     const data = [
-      ["Day Timer", formatTime(dayTimer)],
-      ["General Timer", formatTime(generalTimer)],
+      ["Day Timer", formatTime(getTimerDisplay(day))],
+      ["General Timer", formatTime(getTimerDisplay(general))],
       ...projects.map((project) => [
         `Project: ${project.name}`,
-        formatTime(projectTimers[project.id] || 0),
+        formatTime(getTimerDisplay(projectTimers[project.id] || { base: 0, running: false, startedAt: null })),
       ]),
     ];
 
@@ -232,20 +300,20 @@ export default function TimeTracker() {
             <div className="flex items-center justify-between mb-2">
               <div className="text-2xl font-bold text-gray-900">
                 <Clock className="inline-block mr-2 h-6 w-6" />
-                {formatTime(dayTimer)}
+                {formatTime(getTimerDisplay(day))}
               </div>
               <div>
                 <Button
                   onClick={startDayTimer}
-                  disabled={dayTimerRunning}
-                  className={`mr-2 ${dayTimerRunning ? "bg-green-500 text-white" : ""}`}
+                  disabled={day.running}
+                  className={`mr-2 ${day.running ? "bg-green-500 text-white" : ""}`}
                 >
                   Start
                 </Button>
-                <Button onClick={stopDayTimer} disabled={!dayTimerRunning} className="mr-2">
+                <Button onClick={stopDayTimer} disabled={!day.running} className="mr-2">
                   Stop
                 </Button>
-                <Button onClick={() => setDayTimer(0)} variant="outline" disabled={false}>
+                <Button onClick={() => setDay({ ...day, base: 0, startedAt: day.running ? Date.now() : null })} variant="outline" disabled={false}>
                   Reset
                 </Button>
               </div>
@@ -258,7 +326,7 @@ export default function TimeTracker() {
             <div className="flex items-center justify-between mb-2">
               <div className="text-2xl font-bold text-gray-900">
                 <Clock className="inline-block mr-2 h-6 w-6" />
-                {formatTime(generalTimer)}
+                {formatTime(getTimerDisplay(general))}
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -275,7 +343,7 @@ export default function TimeTracker() {
                   variant="outline"
                   className="px-2"
                   title="Remove 5 minutes from both timers"
-                  disabled={generalTimer < TIME_INCREMENT || dayTimer < TIME_INCREMENT}
+                  disabled={getTimerDisplay(general) < TIME_INCREMENT || getTimerDisplay(day) < TIME_INCREMENT}
                 >
                   <Minus className="h-4 w-4" />
                 </Button>
@@ -286,16 +354,16 @@ export default function TimeTracker() {
                     }
                     startGeneralTimer();
                   }}
-                  disabled={generalTimerRunning}
-                  className={`mr-2 ${generalTimerRunning ? "bg-green-500 text-white" : ""}`}
+                  disabled={general.running}
+                  className={`mr-2 ${general.running ? "bg-green-500 text-white" : ""}`}
                 >
                   Start
                 </Button>
-                <Button onClick={stopGeneralTimer} disabled={!generalTimerRunning} className="mr-2">
+                <Button onClick={stopGeneralTimer} disabled={!general.running} className="mr-2">
                   Stop
                 </Button>
                 <Button
-                  onClick={() => setGeneralTimer(0)}
+                  onClick={() => setGeneral({ ...general, base: 0, startedAt: general.running ? Date.now() : null })}
                   variant="outline"
                   disabled={projectRunning !== null}
                 >
@@ -339,14 +407,14 @@ export default function TimeTracker() {
               {projects.map((project) => (
                 <div key={project.id} className="flex items-center justify-between mb-4 border-b pb-2">
                   <span className="text-gray-900 font-semibold flex-1">{project.name}</span>
-                  <span className="text-gray-700">{formatTime(projectTimers[project.id] || 0)}</span>
+                  <span className="text-gray-700">{formatTime(getTimerDisplay(projectTimers[project.id] || { base: 0, running: false, startedAt: null }))}</span>
                   <div className="flex items-center gap-2 ml-4">
                     <Button
                       onClick={() => transferTimeProjectGeneral(project.id, true)}
                       variant="outline"
                       className="px-2"
                       title="Add 5 minutes from General Timer"
-                      disabled={generalTimer < TIME_INCREMENT}
+                      disabled={getTimerDisplay(general) < TIME_INCREMENT}
                     >
                       <Plus className="h-4 w-4" />
                     </Button>
@@ -355,7 +423,7 @@ export default function TimeTracker() {
                       variant="outline"
                       className="px-2"
                       title="Remove 5 minutes to General Timer"
-                      disabled={(projectTimers[project.id] || 0) < TIME_INCREMENT}
+                      disabled={(projectTimers[project.id]?.base || 0) < TIME_INCREMENT}
                     >
                       <Minus className="h-4 w-4" />
                     </Button>
