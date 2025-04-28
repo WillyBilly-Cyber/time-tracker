@@ -73,7 +73,7 @@ export default function TimeTracker() {
   const [projectRunning, setProjectRunning] = useState<string | null>(initial.projectRunning);
 
   const [, setTick] = useState(0); // for forcing re-render
-  const saveTimeout = useRef<number>();
+  const saveTimeout = useRef<number | undefined>(undefined);
 
   // Force re-render every second for display
   useEffect(() => {
